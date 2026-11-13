@@ -21,17 +21,23 @@ const J = (v: any) => (typeof v === 'string' ? JSON.parse(v) : v);
 
 const CORS = {
   'access-control-allow-origin': '*',
-  'access-control-allow-headers': 'content-type,x-clave',
+  'access-control-allow-headers': 'content-type,x-clave,x-email',
   'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
 };
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { ...CORS, 'content-type': 'application/json' } });
 
+const lista = (v?: string) => (v || '').toLowerCase().split(',').map((x) => x.trim()).filter(Boolean);
+// Rol segun clave + email autorizado (listas en variables de entorno EMAILS_ING / EMAILS_CARGA).
 function rol(req: Request): 'ing' | 'carga' | null {
   const k = req.headers.get('x-clave');
-  if (!k) return null;
-  if (process.env.CLAVE_ING && k === process.env.CLAVE_ING) return 'ing';
-  if (process.env.CLAVE_CARGA && k === process.env.CLAVE_CARGA) return 'carga';
+  let em = '';
+  try { em = decodeURIComponent(req.headers.get('x-email') || '').trim().toLowerCase(); } catch { /* */ }
+  if (!k || !em) return null;
+  const ing = lista(process.env.EMAILS_ING);
+  const todos = [...lista(process.env.EMAILS_CARGA), ...ing];
+  if (process.env.CLAVE_ING && k === process.env.CLAVE_ING && ing.includes(em)) return 'ing';
+  if (process.env.CLAVE_CARGA && k === process.env.CLAVE_CARGA && todos.includes(em)) return 'carga';
   return null;
 }
 

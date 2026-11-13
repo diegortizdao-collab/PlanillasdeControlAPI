@@ -3,7 +3,7 @@
 API de **Planillas de Control · UET 5 (Escorial)**. Corre como *Neon Function* (`plancontrol`) sobre el proyecto Neon `planillas-control-uet5` (aws-us-east-1) — sin dependencias: usa el endpoint SQL-sobre-HTTP de Neon (cada `batch` es una transacción).
 
 - Código: `functions/api/index.ts` · Esquema: `db/schema.sql`
-- Auth: header `x-clave`. Dos claves (variables de entorno de la función): `CLAVE_CARGA` (cargar cierres y turnos, ver todo) y `CLAVE_ING` (además edita estándares, máquinas, causas y configuración).
+- Auth: headers `x-email` + `x-clave`. La clave de carga (`CLAVE_CARGA`) habilita a los emails de `EMAILS_CARGA` + `EMAILS_ING`; la clave de procesos (`CLAVE_ING`) solo a los de `EMAILS_ING`. Las listas y claves son variables de entorno de la función. Es una lista blanca: el email no se verifica por correo.
 - CORS abierto. `GET /` sin clave responde el estado.
 
 | Método | Ruta | Rol |
