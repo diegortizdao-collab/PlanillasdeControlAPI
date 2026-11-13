@@ -1,51 +1,19 @@
--- PlanillasdeControl · esquema PostgreSQL (Neon). Borrador v1, todavía sin conectar al frontend.
-CREATE TABLE maquinas (
-  id text PRIMARY KEY,            -- EP04, EP24, ... (código de la planilla de pérdidas)
-  nombre text NOT NULL,
-  codigo_std text NOT NULL,       -- código en el maestro de estándares (E-P04, LC-06+LC-08, ...)
-  estado_default text NOT NULL DEFAULT 'OPERA' CHECK (estado_default IN ('OPERA','FS')),
-  nota text
-);
-CREATE TABLE estandares (
-  id serial PRIMARY KEY,
-  modelo text NOT NULL, codigo text NOT NULL, componente text NOT NULL,
-  cod_operacion text NOT NULL, nombre_operacion text,
-  maquina_std text NOT NULL,
-  piezas_por_unidad numeric,
-  std_golpes_h numeric NOT NULL,
-  std_alternativo numeric,        -- valor de la otra planilla cuando había conflicto
-  estado text NOT NULL DEFAULT 'unica' CHECK (estado IN ('ok','conflicto','unica','nuevo')),
-  validado boolean NOT NULL DEFAULT false,
-  fecha_toma_tiempos date,
-  modificado_por text, modificado_en timestamptz DEFAULT now(),
-  UNIQUE (modelo, codigo, cod_operacion, maquina_std)
-);
-CREATE TABLE categorias_parada (id text PRIMARY KEY, nombre text NOT NULL, color text);
-CREATE TABLE causas (id serial PRIMARY KEY, categoria_id text REFERENCES categorias_parada(id), nombre text NOT NULL, activa boolean DEFAULT true);
-CREATE TABLE turnos (            -- cabecera del cierre: fecha + turno
-  fecha date NOT NULL, turno text NOT NULL CHECK (turno IN ('MAÑANA','TARDE','NOCHE')),
-  supervisor_legajo text NOT NULL, supervisor_nombre text NOT NULL,
-  cerrado boolean NOT NULL DEFAULT false, cerrado_en timestamptz,
-  PRIMARY KEY (fecha, turno)
-);
-CREATE TABLE registros (         -- una fila por fecha + turno + máquina
-  id serial PRIMARY KEY,
-  fecha date NOT NULL, turno text NOT NULL,
-  maquina_id text NOT NULL REFERENCES maquinas(id),
-  estado text NOT NULL DEFAULT 'OPERA' CHECK (estado IN ('OPERA','NOPROG','FS')),
-  carga_min int NOT NULL DEFAULT 485,
-  FOREIGN KEY (fecha, turno) REFERENCES turnos(fecha, turno),
-  UNIQUE (fecha, turno, maquina_id)
-);
-CREATE TABLE tramos_produccion (
-  id serial PRIMARY KEY, registro_id int NOT NULL REFERENCES registros(id) ON DELETE CASCADE,
-  estandar_id int REFERENCES estandares(id),
-  pieza text, std_golpes_h numeric,   -- snapshot del estándar al momento de cargar
-  hora_inicio time, hora_fin time, minutos int NOT NULL,
-  golpes int NOT NULL, piezas_malas int NOT NULL DEFAULT 0, obs text
-);
-CREATE TABLE paradas (
-  id serial PRIMARY KEY, registro_id int NOT NULL REFERENCES registros(id) ON DELETE CASCADE,
-  categoria_id text NOT NULL REFERENCES categorias_parada(id), causa_id int REFERENCES causas(id),
-  hora_inicio time, hora_fin time, minutos int NOT NULL, detalle text
-);
+-- Planillas de Control UET 5 · esquema Neon (proyecto planillas-control-uet5, aws-us-east-1)
+-- Orientado a piezas: pieza -> operación (ítem de stock/WIP) -> estándar por máquina.
+create table maquinas(id text primary key, nombre text not null, seccion text, orden int default 0, estado_default text not null default 'Programada', activa boolean not null default true, codigo_std text, nota text);
+create table modelos(id serial primary key, nombre text not null unique);
+create table piezas(codigo text primary key, descripcion text, unidad text not null default 'pza', activa boolean not null default true, creado timestamptz not null default now());
+create table modelo_pieza(modelo_id int not null references modelos(id) on delete cascade, pieza_codigo text not null references piezas(codigo), cantidad_por_unidad numeric not null default 1, primary key(modelo_id, pieza_codigo));  -- BOM-lite
+create table operaciones(id serial primary key, pieza_codigo text not null references piezas(codigo), op text not null, nombre text, unique(pieza_codigo, op));  -- pieza+operación = ítem de stock futuro
+create table estandares(id serial primary key, operacion_id int not null references operaciones(id), maquina_id text not null references maquinas(id), std_golpes_h numeric not null check (std_golpes_h>0), piezas_por_golpe numeric not null default 1, std_alt numeric, estado text not null default 'unica', validado boolean not null default false, fuente text, actualizado timestamptz not null default now(), unique(operacion_id, maquina_id));
+create table categorias_parada(id text primary key, nombre text not null, orden int default 0);
+create table causas(id serial primary key, categoria_id text not null references categorias_parada(id), nombre text not null, activa boolean not null default true, unique(categoria_id, nombre));
+create table config(clave text primary key, valor jsonb not null, actualizado timestamptz not null default now());
+create table registros(fecha date not null, turno text not null check (turno in ('MAÑANA','TARDE')), maquina_id text not null references maquinas(id), estado text not null default 'Programada', carga_min numeric, cargado_por text, cerrado boolean not null default false, actualizado timestamptz not null default now(), primary key(fecha,turno,maquina_id));
+create table turnos(fecha date not null, turno text not null check (turno in ('MAÑANA','TARDE')), sup_leg text, sup_nom text, cerrado boolean not null default false, actualizado timestamptz not null default now(), primary key(fecha,turno));
+create table tramos_produccion(id serial primary key, fecha date not null, turno text not null, maquina_id text not null, estandar_id int references estandares(id), operacion_id int references operaciones(id), std_snapshot numeric not null, minutos numeric not null default 0, golpes numeric not null default 0, piezas_buenas numeric, piezas_scrap numeric not null default 0, hora_ini text, hora_fin text, obs text, pieza_manual text, codigo_manual text, op_manual text, foreign key(fecha,turno,maquina_id) references registros(fecha,turno,maquina_id) on delete cascade);
+create table paradas(id serial primary key, fecha date not null, turno text not null, maquina_id text not null, causa_id int references causas(id), minutos numeric not null, nota text, categoria_id text references categorias_parada(id), hora_ini text, hora_fin text, foreign key(fecha,turno,maquina_id) references registros(fecha,turno,maquina_id) on delete cascade);
+create index on tramos_produccion(fecha,turno,maquina_id); create index on paradas(fecha,turno,maquina_id); create index on tramos_produccion(operacion_id);
+-- Base para el control de stock: producción por pieza y operación.
+create view v_produccion_pieza as select t.fecha, o.pieza_codigo, o.op, sum(coalesce(t.piezas_buenas, t.golpes*coalesce(e.piezas_por_golpe,1)-t.piezas_scrap)) as piezas_buenas, sum(t.piezas_scrap) as scrap from tramos_produccion t join operaciones o on o.id=t.operacion_id left join estandares e on e.id=t.estandar_id group by 1,2,3;
+-- Próximo paso (stock): movimientos_stock(pieza_codigo, op, fecha, tipo, cantidad, ubicacion, ref) + stock_actual.

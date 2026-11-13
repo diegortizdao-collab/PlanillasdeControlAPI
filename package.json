@@ -1,0 +1,1 @@
+{"name":"planillas-control-api","private":true,"type":"module","dependencies":{"@neon/functions":"latest","pg":"^8"},"devDependencies":{"esbuild":"^0.28.2"}}
