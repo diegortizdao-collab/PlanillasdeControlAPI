@@ -64,7 +64,7 @@ async function getRegistros(url: URL) {
   const d = url.searchParams.get('desde') || '1900-01-01';
   const h = url.searchParams.get('hasta') || '2999-12-31';
   const [regs, tr, pa, tu] = await Promise.all([
-    db.q(`select to_char(fecha,'YYYY-MM-DD') fecha, turno, maquina_id, estado from registros where fecha between $1 and $2`, [d, h]),
+    db.q(`select to_char(fecha,'YYYY-MM-DD') fecha, turno, maquina_id, estado, carga_min from registros where fecha between $1 and $2`, [d, h]),
     db.q(`select to_char(fecha,'YYYY-MM-DD') fecha, turno, maquina_id, estandar_id, std_snapshot, minutos, golpes, piezas_scrap, hora_ini, hora_fin, obs, pieza_manual, codigo_manual, op_manual from tramos_produccion where fecha between $1 and $2 order by id`, [d, h]),
     db.q(`select to_char(p.fecha,'YYYY-MM-DD') fecha, p.turno, p.maquina_id, p.categoria_id, c.nombre causa, p.minutos, p.nota, p.hora_ini, p.hora_fin from paradas p left join causas c on c.id=p.causa_id where p.fecha between $1 and $2 order by p.id`, [d, h]),
     db.q(`select to_char(fecha,'YYYY-MM-DD') fecha, turno, sup_leg, sup_nom, cerrado from turnos where fecha between $1 and $2`, [d, h]),
@@ -80,8 +80,8 @@ async function getRegistros(url: URL) {
 async function putRegistro(b: any) {
   const k = [b.fecha, b.turno, b.maquina_id];
   const qs: Q[] = [
-    { query: `insert into registros(fecha,turno,maquina_id,estado,actualizado) values($1,$2,$3,$4,now())
-       on conflict(fecha,turno,maquina_id) do update set estado=$4,actualizado=now()`, params: [...k, b.estado || 'OPERA'] },
+    { query: `insert into registros(fecha,turno,maquina_id,estado,carga_min,actualizado) values($1,$2,$3,$4,$5,now())
+       on conflict(fecha,turno,maquina_id) do update set estado=$4,carga_min=$5,actualizado=now()`, params: [...k, b.estado || 'OPERA', b.carga_min ?? null] },
     { query: 'delete from tramos_produccion where fecha=$1 and turno=$2 and maquina_id=$3', params: k },
     { query: 'delete from paradas where fecha=$1 and turno=$2 and maquina_id=$3', params: k },
   ];
